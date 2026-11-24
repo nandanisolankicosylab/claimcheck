@@ -1,0 +1,30 @@
+# ClaimCheck theme (see DESIGN.md): pitch black, arctic-blue text, ember-orange for actions.
+# Streamlit reads this file from the folder it is started in. If the app is deployed from the
+# repository root, keep a copy at <repo root>/.streamlit/config.toml as well.
+[theme]
+base = "dark"
+primaryColor = "#FF6A1A"
+backgroundColor = "#000000"
+secondaryBackgroundColor = "#0B1118"
+textColor = "#A8E6FF"
+linkColor = "#FF8A45"
+borderColor = "#4E89A8"
+showWidgetBorder = true
+baseRadius = "6px"
+buttonRadius = "6px"
+font = "'IBM Plex Sans':https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+headingFont = "Archivo:https://fonts.googleapis.com/css2?family=Archivo:wght@700;800&display=swap"
+headingFontWeights = [800, 700, 700]
+baseFontSize = 16
+# Solid status boxes instead of translucent washes
+greenColor = "#5EE6C8"
+greenBackgroundColor = "#0B1118"
+yellowColor = "#FFC24A"
+yellowBackgroundColor = "#0B1118"
+redColor = "#FF5C6C"
+redBackgroundColor = "#0B1118"
+blueColor = "#A8E6FF"
+blueBackgroundColor = "#0B1118"
+
+[client]
+toolbarMode = "minimal"

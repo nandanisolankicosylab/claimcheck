@@ -1,154 +1,26 @@
+﻿"""
+ClaimCheck - Streamlit app
+Checks a nutrition claim printed on a packaged food label against FSSAI Schedule I
+using the same rule engine (checker.py) that was used for the project dataset.
+
+Run:  streamlit run app.py
+Run from the app folder. The examples use the adjacent data and evidence directories.
+"""
+import hashlib
+from pathlib import Path
+
+import pandas as pd
+from PIL import Image
+from label_scan import read_label, parse_label
 
 import streamlit as st
 import checker
+import theme
 
-st.set_page_config(
-    page_title="ClaimCheck | Nutrition Compliance",
-    page_icon="🥗",
-    layout="wide"
-)
+st.set_page_config(page_title="ClaimCheck", layout="wide", initial_sidebar_state="collapsed")
+theme.apply()
+page = st.sidebar.radio("Navigation", ["Claim Checker", "About the Project"])
 
-# ---------------- CUSTOM DESIGN ----------------
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
-
-.stApp {
-    background: #F6F8F5;
-    font-family: 'DM Sans', sans-serif;
-}
-
-.block-container {
-    padding-top: 2rem;
-    padding-bottom: 3rem;
-    max-width: 1150px;
-}
-
-h1, h2, h3 {
-    font-family: 'Manrope', sans-serif !important;
-    color: #173F35 !important;
-}
-
-[data-testid="stSidebar"] {
-    background: #173F35;
-}
-
-[data-testid="stSidebar"] * {
-    color: #FFFFFF !important;
-}
-
-.hero {
-    background: linear-gradient(120deg, #173F35, #2C6A50);
-    padding: 32px;
-    border-radius: 22px;
-    margin-bottom: 25px;
-}
-
-.hero h1 {
-    color: white !important;
-    font-size: 38px !important;
-    margin-bottom: 5px;
-}
-
-.hero p {
-    color: #D8E9DF !important;
-    font-size: 16px;
-}
-
-.section-card {
-    background: white;
-    border: 1px solid #E3EAE4;
-    border-radius: 18px;
-    padding: 24px;
-    margin-bottom: 18px;
-}
-
-.result-pass {
-    background: #E7F5EC;
-    border: 1px solid #A7D8B8;
-    border-radius: 18px;
-    padding: 25px;
-}
-
-.result-fail {
-    background: #FCECEC;
-    border: 1px solid #E9B5B5;
-    border-radius: 18px;
-    padding: 25px;
-}
-
-.result-review {
-    background: #FFF5DF;
-    border: 1px solid #E8D09A;
-    border-radius: 18px;
-    padding: 25px;
-}
-
-div.stButton > button[kind="primary"] {
-    background: #26734D;
-    color: white;
-    border: none;
-    border-radius: 10px;
-    padding: 0.65rem 1.5rem;
-    font-weight: 700;
-}
-
-div.stButton > button[kind="primary"]:hover {
-    background: #194F36;
-    color: white;
-}
-
-.footer {
-    text-align: center;
-    color: #75847B;
-    font-size: 13px;
-    padding-top: 20px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-# ---------------- CLAIM DEFINITIONS ----------------
-CLAIMS = {
-    "Low fat": ("low fat", "fat"),
-    "Fat free": ("fat free", "fat"),
-    "Low sugar": ("low sugar", "sugar"),
-    "Sugar free": ("sugar free", "sugar"),
-    "No added sugar": ("no added sugar", "nas"),
-    "Source of protein": ("source of protein", "protein"),
-    "High protein": ("high protein", "protein"),
-    "Source of fibre": ("source of fibre", "fibre"),
-    "High fibre": ("high fibre", "fibre"),
-    "Trans fat free": ("trans fat free", "trans"),
-    "Low sodium": ("low sodium", "sodium"),
-    "Very low sodium": ("very low sodium", "sodium"),
-    "Sodium free": ("sodium free", "sodium"),
-}
-
-
-# ---------------- SIDEBAR ----------------
-with st.sidebar:
-    st.markdown("## 🥗 ClaimCheck")
-    st.caption("Nutrition claim compliance tool")
-
-    st.markdown("---")
-
-    page = st.radio(
-        "Navigation",
-        ["Claim Checker", "About the Project"]
-    )
-
-    st.markdown("---")
-
-    st.markdown("### Project")
-    st.write("FSSAI Schedule I")
-    st.write("Rule-based compliance assessment")
-
-    st.markdown("---")
-    st.caption("Mini Project | Nutrition & Food Compliance")
-
-
-# ---------------- ABOUT PAGE ----------------
 if page == "About the Project":
 
     st.markdown("""
@@ -197,228 +69,202 @@ if page == "About the Project":
     st.stop()
 
 
-# ---------------- MAIN PAGE ----------------
-st.markdown("""
-<div class="hero">
-    <h1>🥗 ClaimCheck</h1>
-    <p>Evaluate nutrition claims on packaged foods against FSSAI Schedule I.</p>
-</div>
-""", unsafe_allow_html=True)
 
 
-# ---------------- INPUT SECTION ----------------
-st.markdown("## Evaluate a Nutrition Claim")
-st.caption("Enter the information exactly as shown on the food package.")
+# claim shown to the user -> wording understood by the rulebook, nutrient needed
+CLAIMS = {
+    "Low fat": ("low fat", "fat"),
+    "Fat free": ("fat free", "fat"),
+    "Low sugar": ("low sugar", "sugar"),
+    "Sugar free": ("sugar free", "sugar"),
+    "No added sugar": ("no added sugar", "nas"),
+    "Source of protein": ("source of protein", "protein"),
+    "High protein": ("high protein", "protein"),
+    "Source of fibre": ("source of fibre", "fibre"),
+    "High fibre": ("high fibre", "fibre"),
+    "Trans fat free": ("trans fat free", "trans"),
+    "Low sodium": ("low sodium", "sodium"),
+    "Very low sodium": ("very low sodium", "sodium"),
+    "Sodium free": ("sodium free", "sodium"),
+}
 
-claim_label = st.selectbox(
-    "Nutrition claim printed on the package",
-    list(CLAIMS.keys())
+NUTRIENTS = {
+    "fat_g": ("Total fat", "g", "total_fat_g_100g"),
+    "sugar_g": ("Total sugars", "g", "total_sugars_g_100g"),
+    "protein_g": ("Protein", "g", "protein_g_100g"),
+    "fibre_g": ("Dietary fibre", "g", "fibre_g_100g"),
+    "trans_fat_g": ("Trans fat", "g", "trans_fat_g_100g"),
+    "sodium_mg": ("Sodium", "mg", "sodium_mg_100g"),
+    "energy_kcal": ("Energy (optional)", "kcal", "energy_kcal_100g"),
+}
+
+
+@st.cache_data
+def example_records(path):
+    df = pd.read_excel(path, sheet_name="results").sort_values(["brand", "product_name"])
+    rows = df.astype(object).where(df.notna(), None).to_dict("records")
+    return {r["claim_id"]: dict(r, display=f"{r['brand']} - {r['product_name']} ({r['typed_phrase']})")
+            for r in rows}
+
+
+def render_checker():
+    mode = st.radio("Start with", ["Enter values", "Try a real product", "Scan a label"], horizontal=True)
+    source = "manual"
+    defaults = {}
+    initial_claims = ["Low fat"]
+    initial_state = "Solid"
+    initial_basis = "Per 100"
+    serving_default = None
+    ingredients_default = ""
+    statement_default = "Not checked"
+    photos = Path(__file__).resolve().parent / "evidence" / "label_photos" / "photos"
+
+    if mode == "Try a real product":
+        dataset = Path(__file__).resolve().parent / "data" / "claimcheck_results_final.xlsx"
+        if not dataset.is_file():
+            st.error("The project examples workbook is missing from this installation.")
+            return
+        records = example_records(str(dataset))
+        chosen = st.selectbox("Product and recorded claim", records, index=None,
+                              format_func=lambda key: records[key]["display"])
+        if not chosen:
+            return
+        row = records[chosen]
+        source = chosen
+        initial_claims = [row["claim_on_pack"] if row["claim_on_pack"] in CLAIMS else row["typed_phrase"]]
+        initial_state = row["physical_state_guess"]
+        defaults = {key: row[column] for key, (_, _, column) in NUTRIENTS.items()}
+        ingredients_default = row["ingredient_list"] or ""
+        statement_default = row["naturally_occurring_sugars_statement"] or "Not checked"
+        st.caption(f"Recorded wording on the pack: {row['typed_phrase']}")
+        pictures = sorted(photos.glob(f"{chosen}_*.jpg"))
+        if pictures:
+            with st.expander("Inspect label photos"):
+                for photo in pictures:
+                    st.image(str(photo), caption=photo.stem.split("_")[-1].capitalize())
+        elif row["off_page"]:
+            st.link_button("View product on Open Food Facts", row["off_page"])
+
+    elif mode == "Scan a label":
+        upload = st.file_uploader("Upload a clear photo of one nutrition column", type=["png", "jpg", "jpeg", "webp"])
+        if not upload:
+            return
+        data = upload.getvalue()
+        source = hashlib.sha256(data).hexdigest()
+        if st.session_state.get("scan_id") != source:
+            if not st.button("Read photo", type="primary"):
+                return
+            try:
+                with st.spinner("Reading the nutrition panel..."):
+                    text = read_label(data)
+            except (ValueError, OSError, Image.DecompressionBombError) as exc:
+                st.error(str(exc))
+                return
+            st.session_state.update(scan_id=source, scan_text=text)
+        text = st.session_state.scan_text
+        scan = parse_label(text)
+        defaults = scan["values"]
+        initial_state = {"g": "Solid", "ml": "Liquid"}.get(scan["unit"])
+        initial_basis = scan["basis"]
+        serving_default = scan["serving"]
+        with st.expander("Compare with the uploaded label"):
+            st.image(data)
+            st.text(text.strip() or "No readable text found.")
+        st.caption("Review the suggested values, units and measurement basis against the photo. Fill in any missed entries.")
+
+    claims = st.multiselect("Claims printed on the pack", list(dict.fromkeys([*CLAIMS, *initial_claims])),
+                            default=initial_claims, key=f"{source}_claims")
+    if not claims:
+        st.info("Choose at least one claim to check.")
+        return
+    states = ["Solid", "Liquid"]
+    state = st.radio("Is the product sold as a solid or a liquid?", states, horizontal=True,
+                     index=states.index(initial_state) if initial_state in states else None, key=f"{source}_state")
+    bases = ["Per 100", "Per serving"]
+    basis = st.radio("Values on the label", bases, horizontal=True,
+                     format_func=lambda value: "Per 100 g / 100 ml" if value == "Per 100" else value,
+                     index=bases.index(initial_basis) if initial_basis in bases else None, key=f"{source}_basis")
+    if not state or not basis:
+        st.info("Select the product type and the basis printed on the label.")
+        return
+    unit = "g" if state == "Solid" else "ml"
+    per_serving = basis == "Per serving"
+    context = f"{source}_{state}_{basis}"
+    if (initial_basis and basis != initial_basis) or (initial_state and state != initial_state):
+        defaults = {}
+    size = None
+    if per_serving:
+        size = st.number_input(f"Serving size ({unit})", min_value=0.0,
+                               value=serving_default if state == initial_state else None,
+                               key=f"{context}_size", placeholder="Size of one serving")
+        if not size:
+            st.info("Enter a serving size greater than zero to convert the label values.")
+    kinds = {CLAIMS.get(claim, (claim, None))[1] for claim in claims}
+    needed = {"fat_g": "fat" in kinds, "sugar_g": bool({"nas", "sugar"} & kinds),
+              "protein_g": "protein" in kinds, "fibre_g": "fibre" in kinds, "trans_fat_g": "trans" in kinds,
+              "sodium_mg": "sodium" in kinds, "energy_kcal": bool({"protein", "fibre"} & kinds)}
+    values = {}
+    preview = []
+    for key, (label, nutrient_unit, _) in NUTRIENTS.items():
+        if not needed[key]:
+            continue
+        field_key = f"{context}_{key}"
+        suffix = "serving" if per_serving else f"100 {unit}"
+        col, flag = st.columns([2, 1])
+        missing = flag.checkbox("Not listed", key=f"{field_key}_missing", help=f"{label} is not listed on the pack.")
+        value = col.number_input(f"{label} ({nutrient_unit} per {suffix})", min_value=0.0,
+                                 value=defaults.get(key), disabled=missing, key=field_key,
+                                 placeholder="Enter label value", step=0.01, format="%.3f")
+        if missing:
+            value = None
+        if per_serving and size and value is not None:
+            value = value * 100 / size
+            preview.append(f"{label}: {value:.5g} {nutrient_unit}")
+        values[key] = value
+    if preview:
+        st.markdown(f"**Converted per 100 {unit}**  \n" + " / ".join(preview))
+
+    if {"nas", "trans"} & kinds:
+        values["ingredients"] = st.text_area("Ingredient list (copy it from the pack)", value=ingredients_default,
+                                              key=f"{source}_ingredients")
+    if "trans" in kinds and st.checkbox("This product is an edible oil, fat or ghee", key=f"{source}_oil"):
+        values["product_type"] = "Edible oils and ghee"
+    if "nas" in kinds:
+        options = ["Not checked", "Yes", "No"]
+        statement = st.radio("Does the pack say CONTAINS NATURALLY OCCURRING SUGARS?", options,
+                             index=options.index(statement_default) if statement_default in options else 0,
+                             horizontal=True, key=f"{source}_statement")
+        values["naturally_occurring_statement"] = None if statement == "Not checked" else statement
+
+    button_label = "Check claim" if len(claims) == 1 else "Check claims"
+    if mode == "Scan a label":
+        button_label = "Confirm values and check claims"
+    if st.button(button_label, type="primary", disabled=per_serving and not size):
+        for claim in claims:
+            wording = CLAIMS.get(claim, (claim, None))[0]
+            verdict, explanation, rule_id = checker.check_claim(wording, state, **values)
+            message = {"PASS": st.success, "FAIL": st.error, "NEEDS REVIEW": st.warning}[verdict]
+            message(f"{verdict}: {claim}")
+            st.write(explanation)
+            if rule_id:
+                st.caption(f"Rule used: {rule_id}")
+
+
+st.markdown(
+    '<header class="intro"><span class="eyebrow">FSSAI &nbsp;/&nbsp; Schedule I</span>'
+    '<h1>ClaimCheck<span aria-hidden="true">.</span></h1>'
+    '<p>Check a nutrition claim on a packaged food label against FSSAI Schedule I.</p></header>',
+    unsafe_allow_html=True,
 )
+with st.container(key="product-visual"):
+    st.image(str(Path(__file__).with_name("grocery-aisle.webp")), width="stretch")
 
-wording, kind = CLAIMS[claim_label]
+render_checker()
 
-state = st.radio(
-    "Food category",
-    ["Solid", "Liquid"],
-    horizontal=True,
-    help="Solid products use per 100 g criteria and liquid products use per 100 ml criteria."
-)
-
-basis = "100 g" if state == "Solid" else "100 ml"
-
-st.info(f"Enter nutrient information on an **as sold, per {basis}** basis.")
-
-
-# Initialize values
-protein = fat = sugar = fibre = trans = sodium = energy = None
-ingredients = statement = ptype = None
-
-
-# ---------------- DYNAMIC NUTRIENT INPUT ----------------
-with st.container(border=True):
-
-    st.markdown("### Nutrition Information")
-
-    if kind == "fat":
-        fat = st.number_input(
-            f"Total fat (g per {basis})",
-            min_value=0.0,
-            step=0.1,
-            format="%.2f"
-        )
-
-    elif kind == "sugar":
-        sugar = st.number_input(
-            f"Total sugars (g per {basis})",
-            min_value=0.0,
-            step=0.1,
-            format="%.2f"
-        )
-
-    elif kind == "protein":
-        protein = st.number_input(
-            f"Protein (g per {basis})",
-            min_value=0.0,
-            step=0.1,
-            format="%.2f"
-        )
-
-        energy = st.number_input(
-            f"Energy (kcal per {basis}) — optional",
-            min_value=0.0,
-            step=1.0
-        ) or None
-
-    elif kind == "fibre":
-        fibre = st.number_input(
-            f"Dietary fibre (g per {basis})",
-            min_value=0.0,
-            step=0.1,
-            format="%.2f"
-        )
-
-        energy = st.number_input(
-            f"Energy (kcal per {basis}) — optional",
-            min_value=0.0,
-            step=1.0
-        ) or None
-
-    elif kind == "trans":
-        trans = st.number_input(
-            f"Trans fat (g per {basis})",
-            min_value=0.0,
-            step=0.01,
-            format="%.2f"
-        )
-
-        if st.checkbox("Product is edible oil, fat or ghee"):
-            ptype = "Edible oils and ghee"
-
-        ingredients = st.text_area(
-            "Ingredient list",
-            placeholder="Enter ingredients as printed on the package..."
-        )
-
-    elif kind == "sodium":
-        sodium = st.number_input(
-            f"Sodium (mg per {basis})",
-            min_value=0.0,
-            step=1.0
-        )
-
-    elif kind == "nas":
-        sugar = st.number_input(
-            f"Total sugars (g per {basis})",
-            min_value=0.0,
-            step=0.1,
-            format="%.2f"
-        )
-
-        ingredients = st.text_area(
-            "Ingredient list",
-            placeholder="Enter ingredients as printed on the package..."
-        )
-
-        statement = st.radio(
-            "Does the package mention 'CONTAINS NATURALLY OCCURRING SUGARS'?",
-            ["Yes", "No", "Not checked"],
-            horizontal=True
-        )
-
-        if statement == "Not checked":
-            statement = None
-
-
-# ---------------- CHECK BUTTON ----------------
-st.markdown("")
-
-check_button = st.button(
-    "🔍  Check Compliance",
-    type="primary",
-    use_container_width=True
-)
-
-
-# ---------------- RESULT ----------------
-if check_button:
-
-    result, explanation, rule_id = checker.check_claim(
-        wording,
-        state,
-        protein_g=protein,
-        fat_g=fat,
-        sugar_g=sugar,
-        fibre_g=fibre,
-        trans_fat_g=trans,
-        sodium_mg=sodium,
-        energy_kcal=energy,
-        ingredients=ingredients,
-        product_type=ptype,
-        naturally_occurring_statement=statement
-    )
-
-    st.markdown("---")
-    st.markdown("## Assessment Result")
-
-    if result == "PASS":
-
-        st.markdown("""
-        <div class="result-pass">
-            <h2 style="color:#21633D !important;">✅ PASS</h2>
-            <p style="color:#21633D;">The entered values meet the selected nutrition claim criteria.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    elif result == "FAIL":
-
-        st.markdown("""
-        <div class="result-fail">
-            <h2 style="color:#A52C2C !important;">❌ FAIL</h2>
-            <p style="color:#A52C2C;">The entered values do not meet the selected nutrition claim criteria.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    else:
-
-        st.markdown("""
-        <div class="result-review">
-            <h2 style="color:#946300 !important;">⚠️ NEEDS REVIEW</h2>
-            <p style="color:#946300;">The claim cannot be conclusively evaluated using the information provided.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("### Explanation")
-
-    with st.container(border=True):
-        st.write(explanation)
-
-        if rule_id:
-            st.caption(f"Applicable rule reference: {rule_id}")
-
-
-# ---------------- DISCLAIMER ----------------
-st.markdown("---")
-
-with st.expander("Methodology & Disclaimer"):
-
-    st.write("""
-    ClaimCheck is an educational mini-project that evaluates selected
-    nutrition claims using a rule-based approach based on FSSAI Schedule I.
-
-    It is not an official FSSAI decision or legal advice.
-
-    Results depend on the accuracy and completeness of the information entered.
-
-    No Added Sugar claims cannot be fully established from the nutrition
-    table alone. Ingredient information and applicable conditions must
-    also be considered.
-
-    Regulatory reference: FSSAI Compendium Version IV (14.12.2022).
-    """)
-
-st.markdown("""
-<div class="footer">
-    ClaimCheck | Nutrition Claim Compliance Mini Project
-</div>
-""", unsafe_allow_html=True)
+st.divider()
+st.caption(
+    "Disclaimer: an educational tool, not legal advice or an official FSSAI decision. Results depend on the "
+    "values you enter. 'No added sugar' cannot be fully proven from a nutrition table, and for that claim the "
+    "naturally-occurring-sugars statement is only required when sugars are above the Low sugar level "
+    "(a project assumption). Rules: FSSAI Compendium Version IV (14.12.2022).")
 
